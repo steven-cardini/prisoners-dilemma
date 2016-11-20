@@ -10,16 +10,15 @@ clc; % clear command window
 global pop_size;
 pop_size    = 100;   % game board is a square and accommodates pop_size^2 players
 gen_amount  = 100;  % number of generations
-coop_freq   = 0.1;  % initial frequency of cooperators
+coop_freq   = 0.5;  % initial frequency of cooperators
 
-benefit     = 20;   % benefit > 0
-cost        = 5;    % 0 < cost < benefit
+benefit     = 50;   % benefit > 0
+cost        = 1;    % 0 < cost < benefit
 
         % opponent defects  % opponent cooperates
 payoff = [0,                benefit;       % player defects
          -cost,             benefit-cost]; % player cooperates
          
-
          
 %% Body
 % 0 = defector, 1 = cooperator
@@ -28,7 +27,9 @@ pop = zeros(pop_size);  % defines a matrix for the game board that accomodates a
 pop ( randperm(numel(pop), round(coop_freq * pop_size^2)) ) = 1; % add the specified of cooperators
 
 for generation = 1:gen_amount
-
+  
+  image(pop*50);
+  pause;
   cooperators = sum (pop(:)==1);
   freq = double(cooperators) / double(pop_size^2);
   fprintf('Gen %d - Coop_freq: %d\n', generation, freq);
