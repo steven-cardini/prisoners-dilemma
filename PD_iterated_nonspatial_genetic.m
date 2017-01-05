@@ -9,7 +9,6 @@ clc; % clear command window
 
 
 %% Body
-% 0 = defector, 1 = cooperator
 
 global payoff;
 global pop_size;
@@ -17,97 +16,103 @@ global memory_depth;
 global crossover_rate;
 global mutation_rate;
 
-% payoff matrix with indices [0, 1; 2, 3]
-        % opponent defects  % opponent cooperates
-payoff = [1.1,              5.0;  % player defects
-          0.5,              3.3]; % player cooperates
+% Payoff Vector
+% 0 = player defects, opponent defects
+% 1 = player defects, opponent cooperates
+% 2 = player cooperates, opponent defects
+% 3 = player cooperates, opponent cooperates
+        %  0    1    2    3
+payoff = [1.1, 5.0, 0.5, 3.3];
 
-pop_size = 20; % amount of prisoners / players
-memory_depth = 2; % each players remembers that many previous duels
+pop_size = 20; % amount of players
+memory_depth = 2; % each player remembers that many previous duels
 generations = 1000;
 
 crossover_rate = 1.5 / 4^memory_depth; % on average, 1.5 crossovers per reproduction
 mutation_rate = 1.0 / ( pop_size * 4^memory_depth); % on average, 1 mutation per generation
 
-max_player_fitness =  payoff(1,2)*(pop_size-1)*4^memory_depth;
-max_population_fitness = payoff(2,2)*(pop_size-1)*4^memory_depth * pop_size;
+player_strategies = initialize_strategies(); % 0 = defect, 1 = cooperate
+player_histories = initialize_histories();
 
-game_state = initialize_game_state(true);
 fitness_history = zeros (generations, pop_size+1, 1);
-
-optimized_fitness = 0;
-optimized_strategy = zeros(4^memory_depth, 1);
+optimized_player_fitness = 0;
+optimized_player_strategy = zeros(4^memory_depth, 1);
+max_player_fitness =  payoff(2)*(pop_size-1)*4^memory_depth;
+max_population_fitness = payoff(4)*(pop_size-1)*4^memory_depth * pop_size;
 
 for generation_id = 1 : generations
   
-  [game_state, fitness] = evaluate_generation (game_state);
+  fitness = evaluate_generation (player_strategies, player_histories);
   
   % record and evaluate fitness
-  fitness_history(generation_id,:) = [int32(sum(fitness)); fitness]; % record fitness to review the history
-  [best_generation_fitness, best_player_id] = max(fitness(:));
-  if best_generation_fitness > optimized_fitness
-    optimized_fitness = best_generation_fitness;
-    optimized_strategy = game_state (2*best_player_id, :);
+  fitness_history(generation_id,:) = [int32(sum(fitness)); fitness]; % record fitness to review the history later
+  [best_player_fitness, best_player_id] = max(fitness(:));
+  if best_player_fitness > optimized_player_fitness
+    optimized_player_fitness = best_player_fitness;
+    optimized_player_strategy = player_strategies(best_player_id, :);
   end
   
-  [fitness_sorted, fitness_ind] = sort(fitness);
+  [fitness_sorted, fitness_indices] = sort(fitness);
   
-  new_game_state = initialize_game_state(false); % prepare game state for next generation
+  new_player_strategies = initialize_strategies(); % prepare player strategies for next generation
   
-  % select individuals for next generation and reproduce
+  % create individuals for next generation, each by reproducing two
+  % individuals of current generation
   for individual_id = 1 : pop_size
-    % select randomly two parents
-    parent_id_1 = select_parent(fitness_sorted, fitness_ind);
-    parent_id_2 = select_parent(fitness_sorted, fitness_ind);
+    % select two parents
+    parent_id_1 = select_parent(fitness_sorted, fitness_indices);
+    parent_id_2 = select_parent(fitness_sorted, fitness_indices);
     while parent_id_1 == parent_id_2 % ensure that parents are different individuals
-      parent_id_2 = select_parent(fitness_sorted, fitness_ind);
+      parent_id_2 = select_parent(fitness_sorted, fitness_indices);
     end
     
     % parents reproduce sexually (crossover and mutations) to produce a
     % child strategy
-    child_strategy = reproduce(game_state, parent_id_1, parent_id_2);
-    new_game_state(individual_id*2,:) = child_strategy;
+    child_strategy = reproduce(player_strategies, parent_id_1, parent_id_2);
+    new_player_strategies(individual_id,:) = child_strategy;
   end
   
-  game_state = new_game_state;
+  player_strategies = new_player_strategies;
   
 end
 
 % output the optimized strategy
-optimized_strategy
-fprintf('Individual: Optimized Fitness Value: %d (max possible: %d)\n', int32(optimized_fitness), max_player_fitness);
-fprintf('Population: Optimized Fitness Value: %d (max possible: %d)\n', int32(max(fitness_history(1,:))), max_population_fitness);
+optimized_player_strategy
+fprintf('Individual: Optimized Fitness Value: %d (max possible: %d)\n', int32(optimized_player_fitness), max_player_fitness);
+fprintf('Population: Optimized Fitness Value: %d (max possible: %d)\n', int32(max(fitness_history(:,1))), max_population_fitness);
 
 
 %% Functions
 
-function game_state = initialize_game_state (with_strategies)
+function strategies = initialize_strategies()
+  global pop_size;
+  global memory_depth;
+
+  strategies = zeros (pop_size, 4^memory_depth);
+  
+  for player_id = 1 : pop_size
+    for history_result = 1 : 4^memory_depth
+      strategies(player_id, history_result) = randi(2) - 1;
+    end
+  end
+end
+
+% initializes the player histories with random values
+% values 1-4 according to payoff vector
+function histories = initialize_histories()
   global pop_size;
   global memory_depth;
   
-  game_state = zeros (2*pop_size, 4^memory_depth);
+  histories = zeros(pop_size, memory_depth);
   
   for player_id = 1 : pop_size
-    
     for memory_step = 1 : memory_depth
-      index = player_id * 2 - 1;
-      game_state(index, memory_step) = randi (4) - 1;
+      histories(player_id, memory_step) = randi (4) - 1;
     end
-    
-    if ~with_strategies
-      continue;
-    end
-    
-    for history_result = 1 : 4^memory_depth
-      index = player_id * 2;
-      game_state(index, history_result) = randi(2) - 1;
-    end
-    
   end
-  
 end
 
-function [game_state, fitness] = evaluate_generation (game_state)
+function fitness = evaluate_generation (strategies, histories)
   global pop_size;
   
   fitness = zeros(pop_size, 1);
@@ -117,28 +122,27 @@ function [game_state, fitness] = evaluate_generation (game_state)
       if opponent_id <= player_id % ensure that all players play once against each other exactly
         continue;
       end
-      fitness = play_round (game_state, fitness, player_id, opponent_id); 
+      fitness = play_round (strategies, histories, fitness, player_id, opponent_id); 
     end
   end
 end
 
-function fitness = play_round (game_state, fitness, player_id, opponent_id)
+function fitness = play_round (strategies, histories, fitness, player_id, opponent_id)
   global payoff;  
   global memory_depth;
 
   for duel_id = 1 : 4^memory_depth
     
     % fight
-    player_strategy = get_strategy (game_state, player_id);
-    opponent_strategy = get_strategy (game_state, opponent_id);
+    player_strategy = get_strategy (strategies, histories, player_id);
+    opponent_strategy = get_strategy (strategies, histories, player_id);
     
     % update each player's history
-    game_state = update_history (game_state, player_id, 2*player_strategy + opponent_strategy);
-    game_state = update_history (game_state, opponent_id, 2*opponent_strategy + player_strategy);
+    histories = update_history (histories, player_id, opponent_id, player_strategy, opponent_strategy);
     
     % update each player's fitness points
-    player_payoff = payoff(player_strategy+1, opponent_strategy+1);
-    opponent_payoff = payoff(opponent_strategy+1, player_strategy+1);
+    player_payoff = payoff(player_strategy*2 + opponent_strategy + 1);
+    opponent_payoff = payoff(opponent_strategy*2 + player_strategy + 1);
     fitness(player_id) = fitness(player_id) + player_payoff;
     fitness(opponent_id) = fitness(opponent_id) + opponent_payoff;
     
@@ -146,36 +150,32 @@ function fitness = play_round (game_state, fitness, player_id, opponent_id)
 
 end
 
-function strategy = get_strategy (game_state, player_id)
+function strategy = get_strategy (strategies, histories, player_id)
   global memory_depth;
   
-  index = 2*player_id-1;
   strategy_id = 0;
   
   % check player's history to determine which strategy he plays
   for memory_step = 1:memory_depth
-    result = game_state (index, memory_step);
-    if memory_step > 1
-      result = result * 2^memory_step;
-    end
-    strategy_id = strategy_id + result;
+    strategy_id = strategy_id + histories(player_id, memory_step) * 4^(memory_step-1);
   end
   
-  strategy = game_state (2*player_id, strategy_id+1);
+  strategy = strategies(player_id, strategy_id+1);
 end
 
-function game_state = update_history (game_state, player_id, new_result)
+function histories = update_history (histories, player_id, opponent_id, player_strategy, opponent_strategy)
   global memory_depth;
-  
-  index = player_id*2 - 1;
-  
+    
   for memory_step = memory_depth:-1:1
-    if memory_step == 1
-      new_val = new_result;
-    else
-      new_val = game_state(index, memory_step-1);
+    if memory_step == 1 % calculate duel value for current round
+      player_val = player_strategy * 2 + opponent_strategy;
+      opponent_val = opponent_strategy * 2 + player_strategy;
+    else % shift history duels one back
+      player_val = histories(player_id, memory_step-1);
+      opponent_val = histories(opponent_id, memory_step-1);
     end
-    game_state(index, memory_step) = new_val;
+    histories(player_id, memory_step) = player_val;
+    histories(opponent_id, memory_step) = opponent_val;
   end
 end
 
@@ -194,15 +194,15 @@ function parent_id = select_parent(fitness_sorted, fitness_ind)
   parent_id = fitness_ind(chosen_index);
 end
 
-function child_strategy = reproduce (game_state, parent_id_1, parent_id_2)
+function child_strategy = reproduce (strategies, parent_id_1, parent_id_2)
   global memory_depth;
   global crossover_rate;
   global mutation_rate;
 
   % create chromosomes from parents' strategies
   chromosomes = zeros(2, 4^memory_depth, 1);
-  chromosomes(1,:) = game_state(2*parent_id_1,:);
-  chromosomes(2,:) = game_state(2*parent_id_2,:);
+  chromosomes(1,:) = strategies(parent_id_1,:);
+  chromosomes(2,:) = strategies(parent_id_2,:);
   
   child_strategy = zeros(4^memory_depth, 1);
   parent_id = 1;
@@ -218,18 +218,18 @@ function child_strategy = reproduce (game_state, parent_id_1, parent_id_2)
       end
     end
     
-    bit = chromosomes(parent_id, bit_id);
+    bit_val = chromosomes(parent_id, bit_id);
     
     % perform mutation if necessary
     if rand() < mutation_rate
-      if bit == 0
-        bit = 1;
+      if bit_val == 0
+        bit_val = 1;
       else
-        bit = 0;
+        bit_val = 0;
       end
     end
     
-    child_strategy(bit_id) = bit;
+    child_strategy(bit_id) = bit_val;
     
   end
   
